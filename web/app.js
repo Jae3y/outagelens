@@ -9,6 +9,8 @@ const state = {
   dropout: 0.65, coverage: 0.25, glitch: 0.02,
   model: 'ensemble', placement: 'optimised', blind: false,
   data: null, bench: null, benchKey: null, benchRun: null, benchBusy: false,
+  dispatch: null, dispatchKey: null, dispatchBusy: false, crewSeed: 1, study: {},
+  audit: null, verify: null,
 };
 const MODEL_LABEL = { ensemble: 'Ensemble', bayes: 'Bayes', gnn: 'GNN' };
 const TAG_COLOR = { PHYSICS: C.blue, SCADA: C.ink, METERS: C.green, TOPOLOGY: C.green, OUTLIER: C.amberText, CONFLICT: C.amberText };
@@ -227,6 +229,7 @@ function controlView(d) {
       <div class="verdict-meta">
         <span><span class="conf">${pct(m.confidence)}</span> confidence</span>
         <span class="sub" style="font-size:15px">Top-3 holds ${pct(m.top3_mass, 0)} · entropy ${m.entropy_bits.toFixed(2)} bits</span>
+        ${d.decision ? `<a class="chip" href="#/audit" title="Logged to the tamper-evident decision chain">Decision #${d.decision.seq} · sha256 ${d.decision.hash.slice(0, 10)}…</a>` : ''}
         ${tag}
       </div>
     </div>
@@ -461,7 +464,7 @@ function methodView(d) {
     ['02', 'Power flow', 'OpenDSS, cross-checked every launch against an exact NumPy sweep.'],
     ['03', 'Partial observability', 'Meter dropout, comms glitches, sparse noisy sensors, unknown load level.'],
     ['04', 'Three models', 'Naive LCA baseline, Bayesian topology + physics, tree-structured GNN.'],
-    ['05', 'Ranked work order', 'Calibrated probabilities, evidence, patrol km and crew minutes.'],
+    ['05', 'Dispatch + audit', 'An agent plans the crew search; every decision is hash-chained for audit.'],
   ];
   const ideas = [
     ['Silence is neutral, not evidence', 'A missing meter adds the same likelihood to every candidate, so it cancels. Naive rules read “no ping” as “no outage”.'],
@@ -516,9 +519,150 @@ P_ens ∝ P_Bayes^w · P_GNN^(1−w),  w = 0.65 + 0.35·min(Δ/0.5, 1)</div></di
     <section class="card" style="flex:2 1 380px" aria-label="Limitations">
       <h2 class="h2" style="margin-bottom:6px">Limits, stated up front</h2>
       ${limits.map((l) => `<div class="limit"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="margin-top:4px"><line x1="2" y1="7" x2="12" y2="7" stroke="${C.muted}" stroke-width="2"></line></svg><span>${l}</span></div>`).join('')}
-      <div class="mono sub" style="margin-top:8px;font-size:12px">13 tests · gradient-checked GNN · ${eng ? esc(eng.opendss ? `OpenDSS ⇄ NumPy within ${eng.max_dev_pu.toExponential(1)} p.u.` : 'NumPy DistFlow engine active') : 'engine starting'}</div>
+      <div class="mono sub" style="margin-top:8px;font-size:12px">19 tests · gradient-checked GNN · hash-chained decision log · ${eng ? esc(eng.opendss ? `OpenDSS ⇄ NumPy within ${eng.max_dev_pu.toExponential(1)} p.u.` : 'NumPy DistFlow engine active') : 'engine starting'}</div>
     </section>
   </div>`;
+}
+
+// ------------------------------------------------------- dispatch + audit
+const scenarioKey = () => `${params()}|crew=${state.crewSeed}`;
+
+async function loadDispatch() {
+  state.dispatchBusy = true;
+  render();
+  try {
+    const q = params();
+    q.set('crew_seed', state.crewSeed);
+    state.dispatch = await getJSON(`/api/dispatch?${q}`, { method: 'POST' });
+    state.dispatchKey = scenarioKey();
+    state.audit = null;
+  } catch (err) {
+    toast(`Dispatch agent failed: ${err.message}`);
+  } finally {
+    state.dispatchBusy = false;
+    if (state.view === 'dispatch') render();
+  }
+}
+
+async function loadStudy() {
+  if (state.study[state.feeder]) return;
+  try {
+    state.study[state.feeder] = await getJSON(`/api/dispatch/study?feeder=${state.feeder}`);
+    if (state.view === 'dispatch') render();
+  } catch (err) {
+    toast(`Could not load the dispatch study: ${err.message}`);
+  }
+}
+
+async function loadAudit(verify) {
+  try {
+    state.audit = await getJSON('/api/audit?limit=40');
+    if (verify) state.verify = await getJSON('/api/audit/verify');
+  } catch (err) {
+    toast(`Audit log unavailable: ${err.message}`);
+  }
+  if (state.view === 'audit') render();
+}
+
+const ACTION_COLOR = { INSPECT: C.ink, PING: C.blue, RESTORE: C.green };
+
+function dispatchView(d) {
+  const r = state.dispatch && state.dispatchKey === scenarioKey() ? state.dispatch : null;
+  const st = state.study[state.feeder];
+  const show = !state.blind;
+  const head = `
+  <section class="row" style="align-items:flex-end;justify-content:space-between;gap:16px 40px">
+    <div style="flex:1 1 560px;min-width:0">
+      <div class="kicker">Dispatch agent</div>
+      <h1 class="h1">From a ranked list to a crew at the fault</h1>
+      <p class="lede">The agent plans, acts, observes and updates. It sends the crew to the section with the highest fault probability per crew-minute, pings a silent smart meter when the answer is worth the minutes, and after every “nothing found” updates its beliefs with Bayes’ rule before planning again. Crews miss a fault 5% of the time, so it has to cope with that.</p>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px">
+      <button type="button" class="btn btn-primary" id="d-run" ${state.dispatchBusy ? 'disabled' : ''}>${state.dispatchBusy ? 'Dispatching…' : r ? 'Run again' : 'Run dispatch agent'}</button>
+      <button type="button" class="btn" id="d-luck" ${state.dispatchBusy ? 'disabled' : ''}>New crew luck</button>
+    </div>
+  </section>
+  <div class="sub mono">${show ? `Scenario: ${esc(d.truth.section)} open` : 'Scenario: blind mode (the agent does not know the truth either)'} · seed ${d.scenario.seed} · ${Math.round(d.scenario.dropout * 100)}% meters missing · crew luck ${state.crewSeed}</div>`;
+
+  const studyHtml = st ? `
+  <section class="card" aria-label="Agent study">
+    <h2 class="h2" style="margin-bottom:6px">Across ${st.n} simulated outages on ${esc(d.feeder.short)}</h2>
+    <p class="sub" style="margin:0 0 12px">Average crew time to find the fault, same crew luck for every policy (detection ${Math.round(st.detect * 100)}%).</p>
+    <div class="kpis" style="border:0">
+      <div class="kpi"><div class="kicker">Dispatch agent</div><div class="val">${num(st.agent)} min</div><div class="sub">median ${num(st.agent_median)} · ${st.pings.toFixed(1)} pings per outage</div></div>
+      <div class="kpi"><div class="kicker">Agent without pings</div><div class="val">${num(st.agent_no_pings)} min</div><div class="sub">value of on-demand pings: ${num(st.agent_no_pings - st.agent)} min</div></div>
+      <div class="kpi"><div class="kicker">Follow the ranking</div><div class="val">${num(st.ranked)} min</div><div class="sub">median ${num(st.ranked_median)} · no belief updates</div></div>
+      <div class="kpi"><div class="kicker">Conventional patrol</div><div class="val">${num(st.conventional)} min</div><div class="sub">no analytics, backbone first</div></div>
+    </div>
+    <p class="sub" style="margin:10px 0 0;font-size:12px">The agent minimises expected time, so it is not best on every single outage: it ties or beats the static ranking in ${st.agent_not_worse_pct.toFixed(0)}% of them.</p>
+  </section>` : loadingView('Loading the agent study…');
+
+  if (!r) return head + `<section class="card"><p class="sub" style="margin:0">Press <b>Run dispatch agent</b> to send a simulated crew after the current Control-room scenario.</p></section>` + studyHtml;
+
+  const a = r.agent;
+  const saved = r.ranked.minutes - a.minutes;
+  return head + `
+  <section class="kpis" aria-label="This outage">
+    <div class="kpi"><div class="kicker">Agent found it in</div><div class="val">${num(a.minutes)} min</div><div class="sub">${a.inspections} inspection${a.inspections === 1 ? '' : 's'} · ${a.pings} ping${a.pings === 1 ? '' : 's'}</div></div>
+    <div class="kpi"><div class="kicker">Follow the ranking</div><div class="val">${num(r.ranked.minutes)} min</div><div class="sub">${r.ranked.inspections} inspections · ${saved >= 0 ? `${num(saved)} min slower` : `${num(-saved)} min faster this time`}</div></div>
+    <div class="kpi"><div class="kicker">Conventional patrol</div><div class="val">${num(r.conventional.minutes)} min</div><div class="sub">${r.conventional.km.toFixed(1)} km of line</div></div>
+    <div class="kpi"><div class="kicker">Logged as</div><div class="val" style="font-size:22px"><a href="#/audit">Decision #${r.decision.seq}</a></div><div class="sub mono">sha256 ${r.decision.hash.slice(0, 16)}…</div></div>
+  </section>
+  <section class="card" aria-label="Agent timeline">
+    <h2 class="h2" style="margin-bottom:6px">What the agent did, step by step</h2>
+    <p class="sub" style="margin:0 0 6px">Starting belief: ${r.start_top3.map((x) => `${esc(x.section.replace('-', ' → '))} ${pct(x.p)}`).join(' · ')}</p>
+    ${a.steps.map((s) => `<div class="ev-row" style="grid-template-columns:44px 84px minmax(0,1fr) 120px">
+      <span class="mono sub">${s.n}</span>
+      <span class="t" style="color:${ACTION_COLOR[s.action] || C.ink}">${s.action}</span>
+      <span class="x"><b>${esc(s.label)}</b> · ${esc(s.observation)}<br><span class="sub">${esc(s.reason)}${s.action !== 'RESTORE' ? ` · belief now: ${esc(s.top_section.replace('-', ' → '))} ${pct(s.top_p)}` : ''}</span></span>
+      <span class="mono" style="text-align:right">${s.action === 'RESTORE' ? '' : `+${num(s.minutes)} min · `}${num(s.elapsed)} min</span>
+    </div>`).join('')}
+  </section>` + studyHtml;
+}
+
+function auditView() {
+  const a = state.audit;
+  const v = state.verify;
+  const head = `
+  <section style="max-width:900px">
+    <div class="kicker">Audit log</div>
+    <h1 class="h1">Every decision, tamper-evident</h1>
+    <p class="lede">Each localisation and dispatch plan is appended to a SHA-256 hash chain: a digest of what the control room observed, the exact models that ran (weights hash, calibration, engine) and what they concluded. Each record carries the previous record’s hash, so editing, deleting or reordering any entry breaks every hash after it. Simulated ground truth is never recorded.</p>
+  </section>`;
+  if (!a) return head + loadingView('Loading the decision chain…');
+  const status = v ? (v.ok
+    ? `<span class="tag tag-exact">CHAIN INTACT</span> <span class="sub">${v.count} records re-hashed in ${v.checked_ms} ms · head matches live log: ${v.matches_live_head ? 'yes' : 'no'}</span>`
+    : `<span class="tag tag-miss">BROKEN AT RECORD ${v.first_bad_seq}</span> <span class="sub">${esc(v.problem)}</span>`)
+    : '<span class="sub">Not verified yet in this session.</span>';
+  const summary = (r) => {
+    const p = r.payload;
+    if (r.kind === 'localisation') return `${esc(p.feeder)} · top ${esc(p.result.ensemble_top3[0].section)} ${pct(p.result.ensemble_top3[0].p)} · baseline ${esc(p.result.baseline_top)}`;
+    if (r.kind === 'dispatch') return `${esc(p.feeder)} · found ${esc(p.outcome.found_section || '—')} in ${num(p.outcome.minutes)} min · ${p.steps.length} steps`;
+    return esc(r.kind);
+  };
+  return head + `
+  <section class="card" aria-label="Chain status">
+    <div class="card-head" style="align-items:center">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">${status}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        <button type="button" class="btn btn-primary" id="a-verify">Verify the chain</button>
+        <button type="button" class="btn" id="a-refresh">Refresh</button>
+        <a class="btn" href="/api/audit.jsonl" download>Download log</a>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px;gap:12px 32px">
+      <div><div class="kicker">Records</div><div class="mono" style="font-size:20px">${a.count}</div></div>
+      <div style="min-width:0;flex:1 1 420px"><div class="kicker">Current head hash</div><div class="mono" style="font-size:13px;word-break:break-all">${esc(a.head)}</div></div>
+    </div>
+    <p class="sub" style="margin:12px 0 0">Verify it yourself, with no OutageLens code: <span class="mono">python scripts/verify_audit.py outagelens_decisions.jsonl</span>${a.persisted ? '' : ' · this server keeps the log in memory only'}</p>
+  </section>
+  <section class="card" aria-label="Recent decisions">
+    <h2 class="h2" style="margin-bottom:12px">Recent decisions</h2>
+    ${a.records.length ? `<div class="table-box"><table class="data" style="min-width:820px">
+      <thead><tr><th>#</th><th>Time (UTC)</th><th>Kind</th><th>Decision</th><th>Hash</th><th>Previous</th></tr></thead>
+      <tbody>${a.records.map((r) => `<tr><td class="mono">${r.seq}</td><td class="mono">${esc(r.time.slice(11, 23))}</td><td>${esc(r.kind)}</td><td>${summary(r)}</td><td class="mono">${r.hash.slice(0, 12)}…</td><td class="mono sub">${r.prev_hash.slice(0, 12)}…</td></tr>`).join('')}</tbody>
+    </table></div>` : '<p class="sub">No decisions yet. Open the Control room to make one.</p>'}
+  </section>`;
 }
 
 // ---------------------------------------------------------------- render
@@ -533,17 +677,31 @@ function render() {
     return;
   }
   if (state.view === 'method') { view.innerHTML = methodView(d); return; }
+  if (state.view === 'audit') {
+    view.innerHTML = auditView();
+    $('#a-verify')?.addEventListener('click', () => loadAudit(true));
+    $('#a-refresh')?.addEventListener('click', () => loadAudit(false));
+    return;
+  }
+  if (state.view === 'dispatch') {
+    view.innerHTML = d ? dispatchView(d) : loadingView('Loading the scenario…');
+    $('#d-run')?.addEventListener('click', () => loadDispatch());
+    $('#d-luck')?.addEventListener('click', () => { state.crewSeed = Math.floor(Math.random() * 1e6) + 1; loadDispatch(); });
+    return;
+  }
   if (!d) { view.innerHTML = loadingView('Starting the physics engines and loading the GNN. The first launch takes a few seconds…'); return; }
   view.innerHTML = state.view === 'physics' ? physicsView(d) : `<div id="results" style="display:flex;flex-direction:column;gap:24px">${controlView(d)}</div>`;
 }
 
 function route() {
   const v = (location.hash.replace('#/', '') || 'control').split('?')[0];
-  state.view = ['control', 'robustness', 'physics', 'method'].includes(v) ? v : 'control';
+  state.view = ['control', 'dispatch', 'robustness', 'physics', 'audit', 'method'].includes(v) ? v : 'control';
   buildControls();
   render();
   if (state.view === 'robustness') loadBench();
-  document.title = `OutageLens · ${({ control: 'Control room', robustness: 'Robustness', physics: 'Voltage physics', method: 'Method' })[state.view]}`;
+  if (state.view === 'audit') loadAudit(false);
+  if (state.view === 'dispatch') loadStudy();
+  document.title = `OutageLens · ${({ control: 'Control room', dispatch: 'Dispatch agent', robustness: 'Robustness', physics: 'Voltage physics', audit: 'Audit log', method: 'Method' })[state.view]}`;
 }
 
 async function init() {

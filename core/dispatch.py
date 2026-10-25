@@ -82,16 +82,20 @@ class DispatchAgent:
         miss_mass = 1.0 - p[e] * self.detect
         return self.cost[e] + miss_mass * self.expected_search_minutes(self._after_miss(p, e))
 
+    def _best_inspect_value(self, p: np.ndarray) -> float:
+        return self._inspect_value(p, int(np.argmax(p / self.cost)))
+
     def _ping_value(self, p: np.ndarray, bus_idx: int) -> tuple[float, float]:
+        """Ping now, then inspect optimally given the answer: compared on the same footing as inspecting now."""
         down = self.f.downstream[:, bus_idx]
         p_dead = float(p[down].sum())
-        if p_dead <= 1e-9 or p_dead >= 1 - 1e-9:
-            return np.inf, 0.0  # the answer is already known: no information
+        if p_dead <= 1e-3 or p_dead >= 1 - 1e-3:
+            return np.inf, 0.0  # the answer is as good as known: no information worth minutes
         dead = np.where(down, p, 0.0) / p_dead
         live = np.where(down, 0.0, p) / (1 - p_dead)
         r = self.ping_response
-        expected = (r * (p_dead * self.expected_search_minutes(dead) + (1 - p_dead) * self.expected_search_minutes(live))
-                    + (1 - r) * self.expected_search_minutes(p))
+        expected = (r * (p_dead * self._best_inspect_value(dead) + (1 - p_dead) * self._best_inspect_value(live))
+                    + (1 - r) * self._best_inspect_value(p))
         return self.ping_min + expected, p_dead
 
     def plan(self, p: np.ndarray, pingable: list[int]) -> tuple[str, int, float, str]:
@@ -113,7 +117,8 @@ class DispatchAgent:
     def run(self, p0: np.ndarray, sc: Scenario, seed: int = 0, use_pings: bool = True) -> Episode:
         """Run the agent against a simulated outage. The agent never reads ``sc.fault_edge`` directly:
         it only receives crew reports and meter answers generated from it."""
-        f, rng = self.f, np.random.default_rng(seed)
+        # Separate streams: the k-th look at the faulted section has the same outcome for every policy.
+        f, crew, meters = self.f, np.random.default_rng(seed), np.random.default_rng(seed + 1_000_003)
         p = np.asarray(p0, dtype=float).copy()
         p /= p.sum()
         pingable = [i for i in range(f.n_bus) if sc.has_meter[i] and sc.meter[i] == MISSING] if use_pings else []
@@ -124,7 +129,7 @@ class DispatchAgent:
                 e = target
                 ep.inspections += 1
                 ep.minutes += self.cost[e]
-                hit = e == sc.fault_edge and rng.random() < self.detect
+                hit = e == sc.fault_edge and crew.random() < self.detect
                 name = f.edges[e].name
                 if hit:
                     p = np.zeros_like(p)
@@ -145,7 +150,7 @@ class DispatchAgent:
                 ep.pings += 1
                 ep.minutes += self.ping_min
                 bus = f.buses[b]
-                if rng.random() < self.ping_response:
+                if meters.random() < self.ping_response:
                     alive = bool(sc.energized[b])
                     down = f.downstream[:, b]
                     p = np.where(down, 0.0, p) if alive else np.where(down, p, 0.0)
@@ -167,14 +172,14 @@ class DispatchAgent:
 
     def run_ranked(self, p0: np.ndarray, sc: Scenario, seed: int = 0) -> Episode:
         """Baseline crew: walk the static ranking in order (looping on misses), no belief updates."""
-        rng = np.random.default_rng(seed)
+        crew = np.random.default_rng(seed)
         order = np.argsort(-np.asarray(p0), kind="stable")
         ep = Episode("ranked", False, None, 0.0, 0, 0)
         for n in range(MAX_STEPS):
             e = int(order[n % len(order)])
             ep.inspections += 1
             ep.minutes += self.cost[e]
-            if e == sc.fault_edge and rng.random() < self.detect:
+            if e == sc.fault_edge and crew.random() < self.detect:
                 ep.found, ep.found_section = True, self.f.edges[e].name
                 break
         return ep
