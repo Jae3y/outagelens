@@ -7,24 +7,30 @@ Monte Carlo benchmarks. Systems are built once and shared by every request.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
+from core.audit import AuditLedger, canonical, sha256_hex
 from core.baseline_locator import locate_baseline
 from core.bayesian_locator import BayesianLocator, evidence_items
-from core.ensemble import fusion_weight
+from core.dispatch import DispatchAgent, Episode
+from core.ensemble import TAU, W_MIN, fusion_weight
 from core.evaluator import (DEFAULT_RATES, METHOD_ORDER, M_BASELINE, calibration, conventional_patrol_km, headline,
                             patrol_km, patrol_minutes, run_ablation, run_benchmark, run_placement_study, summarize)
 from core.feeder_topology import Feeder, ieee13, ieee34
-from core.gnn_locator import ensemble, load_model, save_model, train_gnn
+from core.gnn_locator import MODEL_VERSION, ensemble, load_model, save_model, train_gnn
 from core.opendss_engine import DistFlowEngine, get_engine
 from core.sparsity_simulator import MISSING, ObservabilityConfig, fixed_sensor_layout, simulate
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE_DIR = ROOT / ".cache"
+# Append-only decision log (hash chain). OUTAGELENS_AUDIT overrides the path; "memory" keeps it in RAM only.
+_audit_env = os.environ.get("OUTAGELENS_AUDIT", str(ROOT / "audit" / "decisions.jsonl"))
+LEDGER = AuditLedger(None if _audit_env == "memory" else Path(_audit_env))
 
 FEEDERS = {"ieee13": ieee13, "ieee34": ieee34}
 FEEDER_META = {
@@ -74,7 +80,14 @@ class System:
             self.gnn = train_gnn(f, self.surrogate)
             save_model(self.gnn, path)
         self.conventional = [conventional_patrol_km(f, e) for e in range(f.n_edge)]
+        self.agent = DispatchAgent(f)
         self._sensor_cache: dict[tuple, np.ndarray] = {}
+        # What produced a decision, recorded in every audit entry: exact weights, calibration and engine.
+        weights = sha256_hex(path.read_bytes()) if path.exists() else "untrained"
+        self.fingerprint = {"gnn_model": MODEL_VERSION, "gnn_weights_sha256": weights,
+                            "bayes_temperature": round(float(temperature), 6), "ensemble": {"tau": TAU, "w_min": W_MIN},
+                            "engine": self.status["engine"], "engine_max_dev_pu": self.status["max_dev_pu"],
+                            "cache": CACHE_VERSION}
 
     def sensors(self, coverage: float, placement: str) -> np.ndarray:
         k = (round(coverage, 3), placement)
@@ -173,8 +186,8 @@ def _model_summary(s: System, sc, rb, probs: np.ndarray, p_bayes: np.ndarray, p_
     }
 
 
-def scenario(key: str, fault: int | None = None, seed: int | None = None, dropout: float = 0.65,
-             coverage: float = 0.25, glitch: float = 0.02, placement: str = "optimised") -> dict:
+def _observe(key, fault, seed, dropout, coverage, glitch, placement):
+    """Simulate the outage and run every localiser on what the control room would see."""
     s = system(key)
     f = s.feeder
     demo_edge, demo_seed = DEMO_DEFAULTS[key]
@@ -184,12 +197,45 @@ def scenario(key: str, fault: int | None = None, seed: int | None = None, dropou
         raise ValueError(f"fault must be between 0 and {f.n_edge - 1}")
     cfg = ObservabilityConfig(meter_dropout=dropout, sensor_coverage=coverage, false_alarm=glitch)
     sc = simulate(f, s.engine, fault, cfg, seed=seed, sensor=s.sensors(coverage, placement))
-
     rb = s.bayes.locate(sc)
     p_gnn = s.gnn.predict(sc)
     p_ens = ensemble(rb.probs, p_gnn)
     base = locate_baseline(f, sc)
+    return s, f, fault, seed, sc, rb, p_gnn, p_ens, base
+
+
+def inputs_digest(key: str, sc) -> str:
+    """SHA-256 of exactly what the control room observed (meters, sensors, SCADA); no ground truth."""
+    r5 = lambda a: [None if np.isnan(x) else round(float(x), 5) for x in a]  # noqa: E731
+    return sha256_hex(canonical({"feeder": key, "meter": [int(m) for m in sc.meter],
+                                 "sensor": [bool(x) for x in sc.sensor], "v_pre_obs": r5(sc.v_pre_obs),
+                                 "v_post_obs": r5(sc.v_post_obs), "head_kw_pre_obs": round(sc.head_kw_pre_obs, 3),
+                                 "head_kw_post_obs": round(sc.head_kw_post_obs, 3)}))
+
+
+def _top(f: Feeder, p: np.ndarray, k: int = 3) -> list[dict]:
+    return [{"section": f.edges[int(i)].name, "p": round(float(p[i]), 6)} for i in np.argsort(-p, kind="stable")[:k]]
+
+
+def _decision_ref(rec: dict) -> dict:
+    return {"seq": rec["seq"], "hash": rec["hash"], "prev_hash": rec["prev_hash"], "time": rec["time"]}
+
+
+def scenario(key: str, fault: int | None = None, seed: int | None = None, dropout: float = 0.65,
+             coverage: float = 0.25, glitch: float = 0.02, placement: str = "optimised") -> dict:
+    s, f, fault, seed, sc, rb, p_gnn, p_ens, base = _observe(key, fault, seed, dropout, coverage, glitch, placement)
     probs = {"ensemble": p_ens, "bayes": rb.probs, "gnn": p_gnn}
+    nz = p_ens[p_ens > 0]
+    decision = LEDGER.append("localisation", {
+        "feeder": key, "inputs_sha256": inputs_digest(key, sc),
+        "observed": {"meters_reporting": int(((sc.meter != MISSING) & sc.has_meter).sum()),
+                     "outage_pings": int((sc.meter == 0).sum()), "voltage_sensors": int(sc.sensor.sum())},
+        "models": s.fingerprint,
+        "result": {"ensemble_top3": _top(f, p_ens), "bayes_top": _top(f, rb.probs, 1)[0],
+                   "gnn_top": _top(f, p_gnn, 1)[0], "baseline_top": f.edges[int(base.ranking[0])].name,
+                   "fusion_weight": round(fusion_weight(rb.probs), 6),
+                   "entropy_bits": round(float(-(nz * np.log2(nz)).sum()), 6)},
+    })
     models = {m: _model_summary(s, sc, rb, p, rb.probs, p_gnn, base.probs, fault) for m, p in probs.items()}
 
     b_top = int(base.ranking[0])
@@ -235,7 +281,76 @@ def scenario(key: str, fault: int | None = None, seed: int | None = None, dropou
         "scada": {"pre_kw": sc.head_kw_pre_obs, "post_kw": sc.head_kw_post_obs, "shed_kw": sc.shed_kw_obs},
         "nodes": nodes,
         "edges": edges,
+        "decision": _decision_ref(decision),
     }
+
+
+# ----------------------------------------------------------------------------- dispatch
+def _episode_dict(ep: Episode) -> dict:
+    return {"found": ep.found, "found_section": ep.found_section, "minutes": round(ep.minutes, 2),
+            "inspections": ep.inspections, "pings": ep.pings,
+            "steps": [{"n": st.n, "action": st.action, "target": st.target, "label": st.label,
+                       "minutes": round(st.minutes, 2), "elapsed": round(st.elapsed, 2), "reason": st.reason,
+                       "observation": st.observation, "top_section": st.top_section, "top_p": round(st.top_p, 6)}
+                      for st in ep.steps]}
+
+
+def dispatch(key: str, fault: int | None = None, seed: int | None = None, dropout: float = 0.65,
+             coverage: float = 0.25, glitch: float = 0.02, placement: str = "optimised", crew_seed: int = 1) -> dict:
+    """Run the dispatch agent on the current scenario and log its plan to the audit chain."""
+    s, f, fault, seed, sc, rb, p_gnn, p_ens, base = _observe(key, fault, seed, dropout, coverage, glitch, placement)
+    agent = s.agent
+    ep = agent.run(p_ens, sc, seed=crew_seed)
+    no_ping = agent.run(p_ens, sc, seed=crew_seed, use_pings=False)
+    ranked = agent.run_ranked(p_ens, sc, seed=crew_seed)
+    conv_km, conv_n = s.conventional[fault]
+    out = {"agent": _episode_dict(ep),
+           "agent_no_pings": {"minutes": round(no_ping.minutes, 2), "inspections": no_ping.inspections},
+           "ranked": {"minutes": round(ranked.minutes, 2), "inspections": ranked.inspections},
+           "conventional": {"minutes": round(patrol_minutes(conv_km, conv_n), 2), "km": round(conv_km, 2)},
+           "policy": {"detect": agent.detect, "ping_response": agent.ping_response, "ping_min": agent.ping_min},
+           "crew_seed": crew_seed, "start_top3": _top(f, p_ens)}
+    rec = LEDGER.append("dispatch", {
+        "feeder": key, "inputs_sha256": inputs_digest(key, sc), "models": s.fingerprint,
+        "ranking_top3": out["start_top3"], "policy": out["policy"], "crew_seed": crew_seed,
+        "steps": [{"n": st["n"], "action": st["action"], "target": st["target"], "observation": st["observation"],
+                   "elapsed": st["elapsed"]} for st in out["agent"]["steps"]],
+        "outcome": {"found_section": ep.found_section, "minutes": out["agent"]["minutes"],
+                    "inspections": ep.inspections, "pings": ep.pings},
+    })
+    out["decision"] = _decision_ref(rec)
+    return out
+
+
+@lru_cache(maxsize=4)
+def dispatch_study(key: str, n_per_rate: int = 20, seed: int = 7) -> dict:
+    """Agent vs follow-the-ranking vs conventional patrol over many simulated outages (cached to disk)."""
+    path = CACHE_DIR / f"dispatch_{key}.json"
+    if (n_per_rate, seed) == (20, 7) and (cached := _read_json(path).get("payload")):
+        return cached
+    s = system(key)
+    f, agent, rng = s.feeder, s.agent, np.random.default_rng(seed)
+    rows = {"agent": [], "agent_no_pings": [], "ranked": [], "conventional": [], "pings": []}
+    for rate in DEFAULT_RATES:
+        cfg = ObservabilityConfig(meter_dropout=float(rate))
+        for fault in np.resize(rng.permutation(f.n_edge), n_per_rate):
+            sc = simulate(f, s.surrogate, int(fault), cfg, seed=int(rng.integers(1 << 31)))
+            p = ensemble(s.bayes_surrogate.locate(sc).probs, s.gnn.predict(sc))
+            crew = int(rng.integers(1 << 31))
+            ep = agent.run(p, sc, seed=crew)
+            rows["agent"].append(ep.minutes)
+            rows["pings"].append(ep.pings)
+            rows["agent_no_pings"].append(agent.run(p, sc, seed=crew, use_pings=False).minutes)
+            rows["ranked"].append(agent.run_ranked(p, sc, seed=crew).minutes)
+            rows["conventional"].append(patrol_minutes(*s.conventional[int(fault)]))
+    a, r = np.array(rows["agent"]), np.array(rows["ranked"])
+    payload = {"n": len(a), **{k: round(float(np.mean(v)), 2) for k, v in rows.items()},
+               "agent_median": round(float(np.median(a)), 2), "ranked_median": round(float(np.median(r)), 2),
+               "agent_not_worse_pct": round(float(100 * np.mean(a <= r + 1e-9)), 1),
+               "detect": agent.detect}
+    if (n_per_rate, seed) == (20, 7):
+        _write_json(path, {"payload": payload})
+    return payload
 
 
 def telemetry_csv(payload: dict) -> str:

@@ -6,6 +6,7 @@ JSON lives under /api; everything else is the static control room in ``web/``.
 """
 from __future__ import annotations
 
+import json
 import threading
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -25,6 +26,7 @@ def _warm() -> None:
     for key in service.FEEDERS:
         service.system(key)
         service.benchmark(key)
+        service.dispatch_study(key)
 
 
 @asynccontextmanager
@@ -79,6 +81,41 @@ def telemetry(feeder: FeederKey = "ieee34", fault: int | None = Query(None, ge=0
     name = f"outagelens_{feeder}_seed{payload['scenario']['seed']}.csv"
     return PlainTextResponse(service.telemetry_csv(payload), media_type="text/csv",
                              headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/api/dispatch")
+def dispatch(feeder: FeederKey = "ieee34", fault: int | None = Query(None, ge=0), seed: int | None = Query(None, ge=0),
+             dropout: float = Query(0.65, ge=0.0, le=0.95), coverage: float = Query(0.25, ge=0.05, le=1.0),
+             glitch: float = Query(0.02, ge=0.0, le=0.10), placement: Literal["optimised", "random"] = "optimised",
+             crew_seed: int = Query(1, ge=0)) -> dict:
+    try:
+        return service.dispatch(feeder, fault, seed, dropout, coverage, glitch, placement, crew_seed)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/dispatch/study")
+def dispatch_study(feeder: FeederKey = "ieee34") -> dict:
+    return service.dispatch_study(feeder)
+
+
+@app.get("/api/audit")
+def audit(limit: int = Query(25, ge=1, le=200)) -> dict:
+    led = service.LEDGER
+    return {"count": led.count, "head": led.head, "genesis": "0" * 64, "records": led.recent(limit),
+            "persisted": led.path is not None, "recovered_from": led.recovered_from}
+
+
+@app.get("/api/audit/verify")
+def audit_verify() -> dict:
+    return service.LEDGER.verify()
+
+
+@app.get("/api/audit.jsonl", response_class=PlainTextResponse)
+def audit_download() -> PlainTextResponse:
+    body = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in service.LEDGER.all_records())
+    return PlainTextResponse(body, media_type="application/x-ndjson",
+                             headers={"Content-Disposition": 'attachment; filename="outagelens_decisions.jsonl"'})
 
 
 @app.get("/api/benchmark")

@@ -23,6 +23,7 @@ def main() -> None:
         t = time.time()
         service.system(key)  # engine cross-check, calibration and GNN (cached to disk if missing)
         service.benchmark(key)  # default benchmark (cached to disk)
+        service.dispatch_study(key)  # dispatch-agent study (cached to disk)
         print(f"{key}: ready in {time.time() - t:.1f} s")
     print("cache:", ", ".join(sorted(p.name for p in service.CACHE_DIR.iterdir())))
 
