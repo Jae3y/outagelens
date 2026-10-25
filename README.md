@@ -8,7 +8,8 @@ the evidence behind each one, and converts that ranking into patrol kilometres a
 
 Built for the PeerLink Hackathon 2026 (48-hour prototype).
 
-**Live demo:** see [`docs/DEPLOY.md`](docs/DEPLOY.md) to put it online in about 5 minutes (Render or Hugging Face).
+**Code:** https://github.com/Jae3y/outagelens
+**Live demo:** see [`docs/DEPLOY.md`](docs/DEPLOY.md) to put it online in about 5 minutes (Hugging Face or Render).
 **Submission package:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 
 ---

@@ -33,7 +33,7 @@ details; everything else is in this repository and working.
 | Pitch / demo playbook + judge Q&A | Done | `docs/PITCH.md` |
 | Deployment guide | Done | `docs/DEPLOY.md` |
 | UI design (Claude Design canvas) | Done | [OutageLens Redesign](https://claude.ai/artifact/FkzDJYxroAXfNSt797BtjF) (private until you share it) |
-| Source repository | **[you]** Push to GitHub (public, or shared with judges) | — |
+| Source repository | Done, public | https://github.com/Jae3y/outagelens |
 | Slide deck (8 slides, speaker notes) | Done; fill in team name, members, live URL and GitHub URL | [OutageLens Pitch Deck](https://claude.ai/artifact/Y2qRaHkqfNfApvnGKohijR) (private until you share it; exports to PPTX/PDF) |
 | Demo video (if required) | **[you]** Screen-record the 3-minute script in `docs/PITCH.md` | — |
 | Team names, emails, track | **[you]** | — |
