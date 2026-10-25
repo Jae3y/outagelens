@@ -25,6 +25,13 @@ The free CPU tier has 2 vCPUs and 16 GB of RAM, so every interaction stays fast.
 Free Spaces pause after about 48 hours without visitors; open the URL the day before and again just before
 you present.
 
+## Keeping the free instance awake
+
+`.github/workflows/keepalive.yml` pings `https://outagelens.onrender.com/api/health` every 10 minutes from
+GitHub Actions, so the Render instance never reaches its 15-minute sleep. GitHub can delay scheduled runs, so
+for extra safety also add a free UptimeRobot HTTP monitor on `https://outagelens.onrender.com/api/health`
+with a 5-minute interval. A single always-on service uses about 744 of Render's 750 free hours a month.
+
 ## Option B · Render (free tier)
 
 1. Push this folder to a GitHub repository.

@@ -1,0 +1,21 @@
+name: Keep live demo awake
+
+# Render's free instance sleeps after 15 idle minutes. Ping it so judges never wait for a cold start.
+# GitHub may delay scheduled runs by a few minutes; an UptimeRobot monitor on /api/health is the
+# belt-and-braces option (see docs/DEPLOY.md).
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health and warm the models
+        run: |
+          for i in 1 2 3; do
+            curl -fsS --max-time 90 https://outagelens.onrender.com/api/health && break
+            sleep 20
+          done
+          curl -fsS --max-time 90 -o /dev/null "https://outagelens.onrender.com/api/benchmark?feeder=ieee34"
