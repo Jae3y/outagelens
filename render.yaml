@@ -1,0 +1,9 @@
+# Render Blueprint: New > Blueprint > pick this repo. Builds the Dockerfile and serves the app.
+services:
+  - type: web
+    name: outagelens
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true

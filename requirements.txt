@@ -1,0 +1,9 @@
+# OutageLens web app (FastAPI backend + static control room)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+numpy>=1.26
+pandas>=2.1
+networkx>=3.2
+# Optional: EPRI OpenDSS via DSS C-API. If it fails to install or load, OutageLens falls back
+# automatically to its built-in NumPy backward/forward sweep (same feeder model, cross-validated).
+opendssdirect.py>=0.9; platform_machine != "armv7l"

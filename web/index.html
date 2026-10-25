@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OutageLens · distribution outage localisation</title>
+<meta name="description" content="Locate the faulted section of a distribution feeder from topology, voltage physics and incomplete smart-meter data.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Ccircle cx='12' cy='12' r='8.5' fill='none' stroke='%23121619' stroke-width='2.4'/%3E%3Cline x1='18.2' y1='18.2' x2='25' y2='25' stroke='%23121619' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpolyline points='13.5,6.5 10,12.5 14,12.5 10.5,17.5' fill='none' stroke='%23C83A1C' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="fonts/plex.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#view">Skip to content</a>
+<header class="topbar">
+  <div class="wrap topbar-row">
+    <a class="brand" href="#/control" aria-label="OutageLens home">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="#121619" stroke-width="2.4"></circle><line x1="18.2" y1="18.2" x2="25" y2="25" stroke="#121619" stroke-width="2.6" stroke-linecap="round"></line><polyline points="13.5,6.5 10,12.5 14,12.5 10.5,17.5" fill="none" stroke="#C83A1C" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>
+      <span>OutageLens</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#/control" data-view="control">Control room</a>
+      <a href="#/robustness" data-view="robustness">Robustness</a>
+      <a href="#/physics" data-view="physics">Voltage physics</a>
+      <a href="#/method" data-view="method">Method</a>
+    </nav>
+    <div class="topbar-right">
+      <label class="feeder-pick">Feeder
+        <select id="feeder"></select>
+      </label>
+      <span class="chip" id="engine"><span class="dot dot-wait"></span>Starting engines…</span>
+    </div>
+  </div>
+</header>
+<section id="controls" class="controls" aria-label="Scenario controls"></section>
+<main id="view" class="wrap page" tabindex="-1"></main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

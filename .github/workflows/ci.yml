@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt pytest httpx
+      - name: Pre-compute caches
+        run: python scripts/warm_cache.py
+      - name: Tests
+        run: pytest -q -p no:warnings tests/test_core.py tests/test_ensemble.py tests/test_api.py
+      - name: Frontend syntax
+        run: node --check web/app.js && node --check web/charts.js
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t outagelens .
+      - name: Smoke test
+        run: |
+          docker run -d --name ol -p 8000:8000 outagelens
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:8000/api/health && break; sleep 1; done
+          curl -fs "http://127.0.0.1:8000/api/scenario?feeder=ieee34" | python -c "import json,sys; d=json.load(sys.stdin); assert d['models']['ensemble']['status']=='exact'; print('demo scenario OK')"
+          curl -fs http://127.0.0.1:8000/ | grep -q OutageLens

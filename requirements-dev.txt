@@ -1,0 +1,7 @@
+-r requirements.txt
+# Tests
+pytest>=8
+httpx>=0.27
+# Legacy Streamlit dashboard (app.py), kept as a fallback UI
+streamlit>=1.40
+plotly>=5.24

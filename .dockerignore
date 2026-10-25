@@ -1,0 +1,12 @@
+.venv/
+.cache/
+.pytest_cache/
+.streamlit/
+.claude/
+**/__pycache__/
+*.pyc
+tests/
+docs/
+ui/
+app.py
+setup_and_run.py
