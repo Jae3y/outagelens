@@ -18,7 +18,7 @@ jobs:
       - name: Pre-compute caches
         run: python scripts/warm_cache.py
       - name: Tests
-        run: pytest -q -p no:warnings tests/test_core.py tests/test_ensemble.py tests/test_api.py
+        run: pytest -q -p no:warnings
       - name: Frontend syntax
         run: node --check web/app.js && node --check web/charts.js
 

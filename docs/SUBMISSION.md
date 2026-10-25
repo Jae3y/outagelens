@@ -7,7 +7,8 @@ details; everything else is in this repository and working.
 
 | Item | Status | Where |
 |---|---|---|
-| Web control room (4 screens) + JSON API | Done, 13 tests passing | `web/`, `server/`; run with `python run.py` |
+| Dispatch agent + audit-verifiable decision log | Done | `core/dispatch.py`, `core/audit.py`, Dispatch agent and Audit log screens |
+| Web control room (6 screens) + JSON API | Done, 19 tests passing | `web/`, `server/`; run with `python run.py` |
 | Physics engines (OpenDSS + NumPy sweep, cross-checked) | Done | `core/opendss_engine.py` |
 | Three localisation models + ensemble | Done | `core/baseline_locator.py`, `core/bayesian_locator.py`, `core/gnn_locator.py`, `core/ensemble.py` |
 | Reproducible results | Done | `python scripts/reproduce_results.py`, `python scripts/compare_ensembles.py` |

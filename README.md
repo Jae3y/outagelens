@@ -42,6 +42,8 @@ power-flow engine automatically. Both engines solve the same feeder model and ag
 | Screen | What it shows |
 |---|---|
 | **Control room** | Scenario controls (faulted section, missing meters, sensor coverage, glitches, model, sensor placement), the verdict next to the naive baseline, patrol and crew-time impact, the feeder map coloured by fault probability, ranked sections, and tagged evidence. **Blind judge mode** and **Trigger mystery outage** hide the ground truth until you reveal it. |
+| **Dispatch agent** | A plan → act → observe → update agent sends a simulated crew after the current outage: it inspects sections by fault probability per crew-minute, pings silent meters when the answer is worth the minutes, updates its beliefs after every miss, and finishes with an isolate-and-restore step. Includes a 140-outage comparison with "follow the ranking" and conventional patrol. |
+| **Audit log** | Every localisation and dispatch decision in a SHA-256 hash chain (observed-data digest, model fingerprint, outputs; never the ground truth). Verify it in the app, or offline with `python scripts/verify_audit.py`. |
 | **Robustness** | 280-outage Monte Carlo benchmark: accuracy and patrol distance as meters go silent, evidence ablation, sensor-placement study, calibration, and a results table. A button re-runs it with a fresh seed. |
 | **Voltage physics** | Before/after voltage profile, observed vs predicted voltage shift at each sensor, the telemetry table and a CSV download. |
 | **Method** | Pipeline, equations, the three key ideas, the path into a utility OMS, and the limitations. |
@@ -84,6 +86,16 @@ between its top two sections (see below). On a separate 280-outage evaluation
 (`python scripts/compare_ensembles.py`) this gives the best NLL of every strategy tried on IEEE 34 (0.449, vs
 0.458 for Bayes alone and 0.454 for a fixed 0.65/0.35 pool) and matches Bayes on IEEE 13 (0.132 vs 0.131).
 
+**Dispatch agent (140 simulated outages, 95 % crew detection, same crew luck for every policy):**
+
+| Average crew time to find the fault | Agent | Agent, no meter pings | Follow the ranking | Conventional |
+|---|---|---|---|---|
+| IEEE 13-bus | **15.5 min** | 16.8 | 26.6 | 89.9 |
+| IEEE 34-bus | **40.9 min** | 47.5 | 121.6 | 562.8 |
+
+The agent minimises expected time, so it ties or beats the static ranking on 91 % (IEEE 13) and 85 % (IEEE 34)
+of individual outages rather than all of them.
+
 ## How it works
 
 | Layer | What it does | File |
@@ -95,6 +107,8 @@ between its top two sections (see below). On a separate 280-outage evaluation
 | Model 2 | Bayesian model: P(e\|D) ∝ P(S\|e)·P(V\|e)·P(ΔP_head\|e)·P(e), with robust outlier mixture, SCADA-estimated load level, temperature-scaled calibration, explanations and a sensor placement optimiser | `core/bayesian_locator.py` |
 | Model 3 | Tree-structured GNN (subtree / path-to-substation / neighbour message passing), hand-written NumPy backprop (gradient-checked), Adam, temperature scaling | `core/gnn_locator.py` |
 | Ensemble | Margin-gated log-linear pool: Bayes weight w = 0.65 + 0.35·min(Δ/0.5, 1), where Δ is the Bayes top-1/top-2 gap. A decisive Bayes call passes through unchanged; near ties are pooled with the GNN. Tuned on seeds disjoint from every reported benchmark | `core/ensemble.py` |
+| Dispatch agent | Plan → act → observe → update crew search: optimal-search index rule (P(fault) / minutes), value-of-information meter pings, Bayesian updates on misses, restore step | `core/dispatch.py` |
+| Audit log | Append-only SHA-256 hash chain of decisions with tamper detection, persisted as JSON Lines; standalone verifier | `core/audit.py`, `scripts/verify_audit.py` |
 | Evaluation | Monte Carlo benchmark, Top-k, hop error, patrol km and minutes, ablation, calibration (ECE), placement study | `core/evaluator.py` |
 | API | FastAPI service: one call returns a full scenario (verdict, all three models, evidence, map, physics, telemetry); benchmark and CSV endpoints; OpenDSS kept on a dedicated thread | `server/` |
 | Control room | Hand-built HTML/CSS/JS ("Patrol Sheet" design), SVG charts drawn from live API data, no build step | `web/` |
@@ -117,11 +131,11 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-The 13 tests cover power-flow physics invariants on both feeders, a finite-difference gradient check of the
+The 19 tests cover power-flow physics invariants on both feeders, a finite-difference gradient check of the
 GNN, the ensemble's guarantees (valid distribution, decisive Bayes passes through, near ties defer to the GNN,
 weight continuous in the margin), an end-to-end check that OutageLens beats the baseline on accuracy and patrol
 distance, and the HTTP API contract (demo scenario, every section on both feeders, input validation,
-benchmark, CSV and the static site). Once the repository is on GitHub, `.github/workflows/ci.yml` runs them on
+benchmark, CSV and the static site), the audit chain (restart, edit/delete/reorder detection, the standalone verifier) and the dispatch agent (always finds the fault, beats the static ranking on average). Once the repository is on GitHub, `.github/workflows/ci.yml` runs them on
 every push, then builds the Docker image and smoke-tests the demo scenario inside it.
 
 ## Limitations (stated up front)

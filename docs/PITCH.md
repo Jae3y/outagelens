@@ -15,6 +15,8 @@
 | Measured results | 77.5 % vs 41 % Top-1 (IEEE 34), 97 % Top-3, 4.7 km vs 52 km patrol, 80 % vs 12 % Top-1 with 95 % of meters missing (IEEE 13) | Robustness headline strip + charts |
 | Practical impact | Crew minutes saved per outage; OMS/ADMS deployment path; uses data utilities already collect | Impact strip, Method deployment table |
 | Demo quality | Live mystery outage with the ground truth hidden (even the fault picker locks), then revealed | **Trigger mystery outage** button |
+| Agentic AI (the organiser's focus) | Dispatch agent: plans, acts, observes crew reports and meter pings, updates beliefs, restores. 40.9 vs 121.6 crew-minutes on IEEE 34 | **Dispatch agent** screen |
+| Audit-verifiable security (the organiser's focus) | Every decision hash-chained with inputs digest and model fingerprint; tamper detection; offline verifier script | **Audit log** screen, decision chip on Control room |
 | Honesty / feasibility | Limitations listed up front; reproducible scripts; tests; deployable container | Method screen, README |
 
 ## 3-minute demo script (web app, IEEE 34 default scenario)
@@ -35,13 +37,18 @@
 4. **(1:20) Mystery outage.** Back on the Control room, click **Trigger mystery outage**. The truth locks;
    even the fault picker says "Hidden until reveal". Push meters missing to 85 %. Ask the judges to guess,
    then press **Reveal ground truth**.
-5. **(1:50) Robustness.** The baseline collapses as meters go silent while OutageLens degrades gracefully
+5. **(1:40) Dispatch agent.** "Ranking is not dispatch." Press **Run dispatch agent**: it pings the silent meter
+   at 852 (answer: no power), sends the crew to 854 → 852, finds the fault, and plans the restore. Point at the
+   study: 40.9 crew-minutes on average versus 121.6 for a crew following the static list. Then click the
+   decision number to open the **Audit log**, press **Verify the chain**: "every decision is hash-chained;
+   edit one and the chain breaks."
+6. **(2:00) Robustness.** The baseline collapses as meters go silent while OutageLens degrades gracefully
    (57.5 % vs 15 % Top-1 at 95 % missing). The ablation shows why: meters alone 7 %, add voltage sensors 53 %,
    add feeder-head SCADA 57 %. On the calibration plot, 125 of 280 calls land at ≥95 % confidence and every
    one of them is right.
-6. **(2:20) Placement study.** "The same model tells a utility where its next sensor buys the most
+7. **(2:25) Placement study.** "The same model tells a utility where its next sensor buys the most
    visibility: 72 % → 92 % Top-1 for the same 40 % budget."
-7. **(2:40) Close.** "No new hardware on every line. Uses data utilities already have. A ranked work order
+8. **(2:45) Close.** "No new hardware on every line. Uses data utilities already have. A ranked work order
    that cuts patrol from 52 km to under 5 km on average on the IEEE 34-bus feeder."
 
 Tip: switch the feeder to IEEE 13 on the Robustness screen for the most dramatic ablation (7 % → 50 % → 90 %).
