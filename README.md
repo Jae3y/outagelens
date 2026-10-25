@@ -6,7 +6,8 @@ OutageLens combines network topology, sparse voltage telemetry, feeder-head SCAD
 reports into a calibrated probability for every line section. It ranks the likely fault locations, explains
 the evidence behind each one, and converts that ranking into patrol kilometres and crew minutes saved.
 
-Built for the PeerLink Hackathon 2026 (48-hour prototype).
+Built for the IEEE Computer Society PeerLink Online Hackathon 2026 (48-hour prototype) by
+**Jackson Abetianbe** and **Peter Eziagor**.
 
 **Code:** https://github.com/Jae3y/outagelens
 **Live demo:** see [`docs/DEPLOY.md`](docs/DEPLOY.md) to put it online in about 5 minutes (Hugging Face or Render).

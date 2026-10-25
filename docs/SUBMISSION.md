@@ -36,7 +36,8 @@ details; everything else is in this repository and working.
 | Source repository | Done, public | https://github.com/Jae3y/outagelens |
 | Slide deck (8 slides, speaker notes) | Done; fill in team name, members, live URL and GitHub URL | [OutageLens Pitch Deck](https://claude.ai/artifact/Y2qRaHkqfNfApvnGKohijR) (private until you share it; exports to PPTX/PDF) |
 | Demo video (if required) | **[you]** Screen-record the 3-minute script in `docs/PITCH.md` | — |
-| Team names, emails, track | **[you]** | — |
+| Team | Jackson Abetianbe, Peter Eziagor | README, deck cover |
+| Emails, track | **[you]** Fill in on the registration form | — |
 
 ## Copy-paste blurbs
 
