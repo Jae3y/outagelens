@@ -29,8 +29,8 @@ you present.
 
 `.github/workflows/keepalive.yml` pings `https://outagelens.onrender.com/api/health` every 10 minutes from
 GitHub Actions, so the Render instance never reaches its 15-minute sleep. GitHub can delay scheduled runs, so
-for extra safety also add a free UptimeRobot HTTP monitor on `https://outagelens.onrender.com/api/health`
-with a 5-minute interval. A single always-on service uses about 744 of Render's 750 free hours a month.
+an UptimeRobot HTTP monitor on `https://outagelens.onrender.com/api/health` (5-minute interval, free plan,
+email alerts) is a second keep-alive and also tells you if the site ever goes down. A single always-on service uses about 744 of Render's 750 free hours a month.
 
 ## Option B · Render (free tier)
 
