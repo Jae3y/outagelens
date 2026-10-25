@@ -10,7 +10,7 @@ Built for the IEEE Computer Society PeerLink Online Hackathon 2026 (48-hour prot
 **Jackson Abetianbe** and **Peter Eziagor**.
 
 **Code:** https://github.com/Jae3y/outagelens
-**Live demo:** see [`docs/DEPLOY.md`](docs/DEPLOY.md) to put it online in about 5 minutes (Hugging Face or Render).
+**Live demo:** https://outagelens.onrender.com (Render free tier: the first visit after 15 idle minutes takes about a minute to wake)
 **Submission package:** [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 
 ---

@@ -22,7 +22,7 @@ details; everything else is in this repository and working.
 |---|---|---|
 | Container image | Done, builds and serves locally | `Dockerfile` |
 | One-click hosting configs | Done | `render.yaml` (Render), Hugging Face steps in `docs/DEPLOY.md` |
-| Public URL | **[you]** Deploy from your GitHub account (about 5 minutes), then paste the URL here and in the README | `docs/DEPLOY.md` |
+| Public URL | Done (Render, free plan, auto-deploys on every push to main) | https://outagelens.onrender.com |
 | Offline fallback | Done: the laptop copy needs no internet (fonts bundled) | `python run.py` |
 | Demo script and Q&A | Done | `docs/PITCH.md` |
 

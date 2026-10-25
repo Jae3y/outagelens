@@ -32,10 +32,10 @@ you present.
    the rest: Docker runtime, free plan, health check on `/api/health`.
 3. The first build takes about 5 minutes. Your URL looks like `https://outagelens.onrender.com`.
 
-Render's free instance has only 0.1 CPU and sleeps after 15 minutes idle (30–60 s to wake). Because the heavy
-work happens at build time, the app stays usable there. Estimated from measured CPU time ×10: start-up ≈ 5 s
-plus Python imports, ≈ 0.2 s per slider change, ≈ 16 s for a benchmark re-run, ≈ 21 s for the benchmark at a
-non-default sensor coverage. Hugging Face is still the safer choice for the judging slot. **Either way, open
+Render's free instance has only 0.1 CPU and sleeps after 15 minutes idle. Measured with the real image under
+the same limits (`docker run --cpus=0.1 --memory=512m`): healthy after about 100 s, about 20 s for the very
+first scenario while the models load, then about 0.25 s per request; memory about 105 MB of 512. So after a
+cold start, give it two minutes before the judges arrive. Live deployment: https://outagelens.onrender.com. Hugging Face is still the safer choice for the judging slot. **Either way, open
 the URL 5 minutes before you present.**
 
 ## Option C · Railway / Fly.io / any VPS
